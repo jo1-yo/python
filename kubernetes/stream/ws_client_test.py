@@ -295,6 +295,91 @@ class WSClientProtocolTest(unittest.TestCase):
             expected_header = f"sec-websocket-protocol: {V5_CHANNEL_PROTOCOL},{V4_CHANNEL_PROTOCOL}"
             self.assertIn(expected_header, kwargs['header'])
 
+    def test_create_websocket_custom_auth_header(self):
+        """Verify create_websocket uses auth_settings() for the header name
+        instead of hardcoding 'authorization' (issue #2510)"""
+        custom_config = MagicMock()
+        custom_config.assert_hostname = False
+        custom_config.proxy = None
+        custom_config.proxy_headers = None
+        custom_config.ssl_ca_cert = None
+        custom_config.cert_file = None
+        custom_config.key_file = None
+        custom_config.verify_ssl = True
+        custom_config.tls_server_name = None
+        custom_config.auth_settings.return_value = {
+            'BearerToken': {
+                'type': 'api_key',
+                'in': 'header',
+                'key': 'MY-AUTH-TOKEN',
+                'value': 'Bearer my-secret',
+            }
+        }
+
+        with patch.object(ws_client_module, 'WebSocket', autospec=True) as mock_ws_cls:
+            mock_ws = mock_ws_cls.return_value
+            WSClient(custom_config, "ws://test", headers=None, capture_all=True)
+
+            mock_ws.connect.assert_called_once()
+            kwargs = mock_ws.connect.call_args[1]
+            self.assertIn('header', kwargs)
+            self.assertIn("MY-AUTH-TOKEN: Bearer my-secret", kwargs['header'])
+            # Must not contain the hardcoded 'authorization' header
+            for h in kwargs['header']:
+                if h.startswith('authorization:'):
+                    self.fail("Found hardcoded 'authorization' header")
+
+    def test_create_websocket_default_auth_header(self):
+        """Verify create_websocket still works with standard 'authorization'
+        header from auth_settings()"""
+        custom_config = MagicMock()
+        custom_config.assert_hostname = False
+        custom_config.proxy = None
+        custom_config.proxy_headers = None
+        custom_config.ssl_ca_cert = None
+        custom_config.cert_file = None
+        custom_config.key_file = None
+        custom_config.verify_ssl = True
+        custom_config.tls_server_name = None
+        custom_config.auth_settings.return_value = {
+            'BearerToken': {
+                'type': 'api_key',
+                'in': 'header',
+                'key': 'authorization',
+                'value': 'Bearer default-token',
+            }
+        }
+
+        with patch.object(ws_client_module, 'WebSocket', autospec=True) as mock_ws_cls:
+            mock_ws = mock_ws_cls.return_value
+            WSClient(custom_config, "ws://test", headers=None, capture_all=True)
+
+            kwargs = mock_ws.connect.call_args[1]
+            self.assertIn("authorization: Bearer default-token", kwargs['header'])
+
+    def test_create_websocket_fallback_to_headers_dict(self):
+        """Verify create_websocket falls back to headers['authorization']
+        when auth_settings() returns empty"""
+        custom_config = MagicMock()
+        custom_config.assert_hostname = False
+        custom_config.proxy = None
+        custom_config.proxy_headers = None
+        custom_config.ssl_ca_cert = None
+        custom_config.cert_file = None
+        custom_config.key_file = None
+        custom_config.verify_ssl = True
+        custom_config.tls_server_name = None
+        custom_config.auth_settings.return_value = {}
+
+        with patch.object(ws_client_module, 'WebSocket', autospec=True) as mock_ws_cls:
+            mock_ws = mock_ws_cls.return_value
+            WSClient(custom_config, "ws://test",
+                     headers={'authorization': 'Bearer fallback'},
+                     capture_all=True)
+
+            kwargs = mock_ws.connect.call_args[1]
+            self.assertIn("authorization: Bearer fallback", kwargs['header'])
+
     def test_close_channel_v5(self):
         """Verify close_channel sends correct frame when v5 is negotiated"""
         with patch.object(ws_client_module, 'create_websocket') as mock_create:

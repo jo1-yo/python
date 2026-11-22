@@ -546,11 +546,22 @@ def get_websocket_url(url, query_params=None):
 def create_websocket(configuration, url, headers=None):
     enableTrace(False)
 
-    # We just need to pass the Authorization, ignore all the other
-    # http headers we get from the generated code
+    # Derive auth headers from configuration.auth_settings() so that
+    # custom header names (e.g. from Configuration subclasses) are
+    # forwarded to the websocket connection.  Falls back to the
+    # 'authorization' key in *headers* for backwards compatibility.
     header = []
-    if headers and 'authorization' in headers:
-            header.append("authorization: %s" % headers['authorization'])
+    auth_added = False
+    for auth_setting in configuration.auth_settings().values():
+        if auth_setting['in'] == 'header':
+            header.append("%s: %s" % (auth_setting['key'],
+                                      auth_setting['value']))
+            auth_added = True
+        elif auth_setting['in'] == 'cookie':
+            header.append("cookie: %s" % auth_setting['value'])
+            auth_added = True
+    if not auth_added and headers and 'authorization' in headers:
+        header.append("authorization: %s" % headers['authorization'])
     if headers and 'sec-websocket-protocol' in headers:
         header.append("sec-websocket-protocol: %s" %
                       headers['sec-websocket-protocol'])
